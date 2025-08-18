@@ -1,16 +1,41 @@
-# backend/extraction/extractor.py
-import pdfplumber, docx2txt, pytesseract
-from PIL import Image
+import os
+import mimetypes
+from .pdf_extractor import extract_text_from_pdf
+from .docx_extractor import extract_text_from_docx
+from .xlsx_extractor import extract_text_from_xlsx
+from .image_extractor import extract_text_from_image
 
-def extract_events_from_pdf(file_path):
-    # pdfplumber logic
-    return [{"event": "Loading", "start": "2025-08-10 14:00", "end": "2025-08-10 18:00"}]
 
-def extract_events_from_docx(file_path):
-    # docx2txt logic
-    return []
+def extract_text(file_path: str) -> str:
+    """
+    Detect file type and send to correct extractor.
+    Returns extracted text.
+    """
+    mime_type, _ = mimetypes.guess_type(file_path)
 
-def extract_events_from_image(file_path):
-    text = pytesseract.image_to_string(Image.open(file_path))
-    # parse into events
-    return []
+    if mime_type == "application/pdf":
+        return extract_text_from_pdf(file_path)
+
+    elif mime_type in [
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    ]:
+        return extract_text_from_docx(file_path)
+
+    elif mime_type in [
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    ]:
+        return extract_text_from_xlsx(file_path)
+
+    elif mime_type in ["image/jpeg", "image/png", "image/tiff"]:
+        return extract_text_from_image(file_path)
+
+    else:
+        return "❌ Unsupported file type"
+
+
+def extract_events_from_pdf(file_path: str) -> str:
+    """
+    Wrapper kept for compatibility with main.py.
+    Uses PDF extractor under the hood.
+    """
+    return extract_text_from_pdf(file_path)
