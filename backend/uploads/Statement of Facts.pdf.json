@@ -1,0 +1,4 @@
+{
+  "raw_text": "Statement of Facts  \nVessel: ABC Ship  \nPort: Mumbai  \nDate: 18 Aug 2025  \nEvent: Loading started at 10:00 AM",
+  "cleaned_text": "Statement of Facts Vessel: ABC Ship Port: Mumbai Date: 18 Aug 2025 Event: Loading started at 10:00 AM"
+}
