@@ -89,43 +89,124 @@ const extractPortOperationEventsPrompt = ai.definePrompt({
   output: {schema: ExtractPortOperationEventsOutputSchema.omit({ timelineBlocks: true })},
   prompt: `You are an expert maritime logistics AI with exceptional attention to detail. Your task is to analyze the provided Statement of Fact (SoF) and perform three tasks with the highest level of accuracy and completeness.
 
-**Primary Directive: Do not miss ANY event. Every single line item in the SoF that has a timestamp must be treated as a unique, extractable event.**
+Primary Directive:
+You must not miss ANY event. Every line item in the Statement of Facts (SoF) that contains a timestamp must be extracted as a unique event.
 
-Here are your tasks:
+1. Event Extraction (Line-by-Line)
 
-1.  **Extract All Details (Comprehensive Extraction)**:
-    -   Go through the document line-by-line. Identify **every single event**, no matter how minor. If it has a date or time, it is an event. This includes short breaks, meetings, weather changes, etc.
-    -   For **each event**, you must extract:
-        -   **event**: Use the **exact, verbatim text** from the "Remarks" column of the SoF. Do NOT summarize or rephrase. For example, if the SoF says "Pilot Attended On Board in the vessel", you must use that exact phrase.
-        -   **category**: Classify each event into one of these specific categories: 'Arrival', 'Cargo Operations', 'Departure', 'Delays', 'Stoppages', 'Bunkering', 'Anchorage', or 'Other'.
-        -   **startTime**: The start time of the event in \`YYYY-MM-DD HH:MM\` format. Pay close attention to the date column.
-        -   **endTime**: The end time of the event in \`YYYY-MM-DD HH:MM\` format. Often, the end time of one event is the start time of the next. If an event is a single point in time, the start and end times will be the same.
-        -   **duration**: The calculated duration between start and end times (e.g., "2h 30m", "15m"). If start and end are the same, duration is "0m".
-        -   **status**: The status of the event (e.g., 'Completed', 'In Progress', 'Delayed'). Most events will be 'Completed'.
-        -   **remark**: Capture any additional text or notes from the "Remarks" column for that specific event.
-    -   Also extract the following master details from anywhere in the document:
-        -   Vessel/Ship Name
-        -   Port of Call & Berth/Anchorage
-        -   Voyage Number
-        -   Cargo Description and Quantity
-        -   Date/Time Notice of Readiness (NOR) was tendered
-    -   **Crucially, ensure the final list of events is sorted chronologically by \`startTime\`**.
+Parse the SoF line-by-line.
 
-2.  **Calculate Laytime (Detailed Breakdown)**:
-    -   Perform a detailed laytime calculation. Assume a standard allowed laytime of "3 days" unless specified otherwise.
-    -   Analyze each event you extracted. For the \`laytimeEvents\` array, list every event and determine if its duration should be counted towards laytime.
-    -   Provide a clear \`reason\` for why each event is counted or not counted (e.g., "Cargo operations count towards laytime," "Rain delay - time does not count," "Holiday - time does not count").
-    -   Calculate \`totalLaytime\`, \`timeSaved\` (despatch), and \`demurrage\`.
-    -   If demurrage occurs, calculate the \`demurrageCost\` assuming a standard rate of $20,000 per day, prorated for the exact demurrage duration. Format the result as a currency string (e.g., '$15,500.00').
+If a row has a date and/or time, it is an event.
 
-3.  **Summarize Key Insights**:
-    -   Provide a brief, bullet-point summary highlighting the most critical insights, such as:
-        -   Total time spent in port.
-        -   Total time spent on cargo operations.
-        -   Total time lost to major delays or stoppages, specifying the reasons (e.g., weather, equipment failure).
+For each event, extract the following fields into JSON:
 
-**Process the following SoF content meticulously and return the complete, detailed analysis in the required JSON format. If you cannot reliably calculate laytime or the summary, you may omit those fields, but you MUST return the vesselName and the full list of events.**
+{
+  "event": "Verbatim text from Remarks column (do not summarize)",
+  "category": "One of ['Arrival', 'Cargo Operations', 'Departure', 'Delays', 'Stoppages', 'Bunkering', 'Anchorage', 'Other']",
+  "startTime": "YYYY-MM-DD HH:MM",
+  "endTime": "YYYY-MM-DD HH:MM (or same as startTime if point-in-time event)",
+  "duration": "e.g., '2h 30m', '15m', or '0m' if same start/end",
+  "status": "e.g., 'Completed', 'In Progress', 'Delayed', or 'Not Mentioned' if unavailable",
+  "remark": "Any additional text from the Remarks column for this event"
+}
 
+
+If a field is missing in the SoF, do not crash. Just use "Not Mentioned" or leave it empty.
+
+The only mandatory fields are:
+
+vesselName
+
+events
+
+If these two cannot be extracted → return:
+
+{"error": "Unable to extract vessel name and events"}
+
+2. Master Details Extraction
+
+Also extract these if present in the SoF (if missing, still proceed):
+
+vesselName (Ship Name)
+
+portOfCall (and berth/anchorage if mentioned)
+
+voyageNumber
+
+cargoDescription and cargoQuantity
+
+noticeOfReadinessTendered (date/time)
+
+3. Laytime Calculation
+
+Assume standard allowed laytime = 3 days (72h) unless otherwise stated.
+
+Create a laytimeEvents array where each event includes:
+
+{
+  "event": "Verbatim event text",
+  "duration": "e.g., 2h 30m",
+  "countedTowardsLaytime": true/false,
+  "reason": "Explain why this event counts or not (e.g., 'Cargo ops count', 'Rain delay excluded')"
+}
+
+
+Then calculate:
+
+totalLaytime (hours/minutes)
+
+timeSaved (despatch) if laytime < 72h
+
+demurrage if laytime > 72h
+
+demurrageCost (standard $20,000/day, prorated)
+
+4. Summary (Insights)
+
+Generate a short, bullet-point summary with:
+
+Total time spent in port
+
+Total time spent on cargo operations
+
+Total time lost to delays/stoppages (with reasons)
+
+5. Output Format
+
+Final output must always be in valid JSON with this structure:
+
+{
+  "vesselName": "...",
+  "portOfCall": "...",
+  "voyageNumber": "...",
+  "cargoDescription": "...",
+  "cargoQuantity": "...",
+  "noticeOfReadinessTendered": "...",
+  "events": [...chronologically sorted list of events...],
+  "laytimeEvents": [...],
+  "totalLaytime": "...",
+  "timeSaved": "...",
+  "demurrage": "...",
+  "demurrageCost": "...",
+  "summary": [
+    "Insight 1",
+    "Insight 2",
+    "Insight 3"
+  ]
+}
+
+
+📌 Key Rules Recap
+
+Never skip events.
+
+Always preserve verbatim event text.
+
+Handle missing fields gracefully.
+
+Only vesselName and events are mandatory.
+
+Always output valid JSON.
 SoF Content:
 {{{sofContent}}}`,
 });
